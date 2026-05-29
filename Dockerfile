@@ -16,9 +16,11 @@ RUN git config --global --add safe.directory '*'
 
 WORKDIR /app
 
-COPY . .
+COPY package*.json ./
 
 RUN npm install
+
+COPY . .
 
 RUN flutter config --enable-web
 
