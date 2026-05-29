@@ -1,55 +1,61 @@
 const express = require("express");
-const path = require("path");
 const fs = require("fs-extra");
+const path = require("path");
 const { exec } = require("child_process");
+const crypto = require("crypto");
 
 const app = express();
 
-const PROJECT_PATH = "/app/preview";
+app.use(express.json({ limit: "100mb" }));
 
-app.use(express.json({ limit: "50mb" }));
+const ROOT = "/tmp/flutter-projects";
+
+fs.ensureDirSync(ROOT);
 
 app.get("/", (req, res) => {
   res.send("Flutter Preview Server Running");
 });
 
-app.get("/preview", async (req, res) => {
+app.post("/api/compile", async (req, res) => {
   try {
-    const buildPath = path.join(PROJECT_PATH, "build/web");
 
-    if (!fs.existsSync(buildPath)) {
-      return res.status(404).send("No build found");
+    const files = req.body.files;
+
+    if (!files) {
+      return res.status(400).json({
+        success: false,
+        error: "No files provided"
+      });
     }
 
-    app.use(
-      "/app-preview",
-      express.static(buildPath)
-    );
+    const projectId = crypto.randomBytes(8).toString("hex");
 
-    res.send(`
-      Preview Ready:
-      <a href="/app-preview" target="_blank">
-        Open App
-      </a>
-    `);
+    const projectPath = path.join(ROOT, projectId);
 
-  } catch (e) {
-    res.status(500).send(e.toString());
-  }
-});
+    await fs.ensureDir(projectPath);
 
-app.post("/build", async (req, res) => {
-  try {
+    // إنشاء الملفات
+    for (const filePath in files) {
 
+      const fullPath = path.join(projectPath, filePath);
+
+      await fs.ensureDir(path.dirname(fullPath));
+
+      await fs.writeFile(fullPath, files[filePath]);
+    }
+
+    // بناء Flutter Web
     exec(
       `
-      cd ${PROJECT_PATH} &&
-      flutter clean &&
+      cd ${projectPath} &&
+      flutter config --enable-web &&
       flutter pub get &&
       flutter build web --release
       `,
-      { maxBuffer: 1024 * 1024 * 20 },
-      (error, stdout, stderr) => {
+      {
+        maxBuffer: 1024 * 1024 * 50
+      },
+      async (error, stdout, stderr) => {
 
         if (error) {
           return res.status(500).json({
@@ -58,19 +64,32 @@ app.post("/build", async (req, res) => {
           });
         }
 
-        res.json({
+        const previewPath = path.join(projectPath, "build/web");
+
+        app.use(
+          `/preview/${projectId}`,
+          express.static(previewPath)
+        );
+
+        return res.json({
           success: true,
-          output: stdout
+          previewUrl: `/preview/${projectId}`,
+          logs: stdout
         });
 
       }
     );
 
   } catch (e) {
-    res.status(500).send(e.toString());
+
+    return res.status(500).json({
+      success: false,
+      error: e.toString()
+    });
+
   }
 });
 
 app.listen(3000, () => {
-  console.log("Server running on port 3000");
+  console.log("Server started on port 3000");
 });
