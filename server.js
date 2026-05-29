@@ -49,7 +49,8 @@ app.post("/api/compile", async (req, res) => {
       `
       cd ${projectPath} &&
       flutter config --enable-web &&
-      flutter pub get &&
+      flutter create . --platforms web
+      flutter pub get
       flutter build web --release
       `,
       {
